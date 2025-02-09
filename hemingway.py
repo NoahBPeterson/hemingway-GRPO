@@ -1,5 +1,12 @@
+#!/opt/homebrew/bin/python3.12
 import re
 import uuid
+
+# Add logging
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Constants from the original JS file
 adverbs_list = {
@@ -615,32 +622,73 @@ def analyze_sentence(sentence, settings):
     words = re.findall(r'\b\w+\b', sentence.lower())
     letters = sum(len(word) for word in words)
     
+    logger.debug(f"Analyzing sentence: {sentence}")
+    logger.debug(f"Found words: {words}")
+    
+    # Check for weak phrases - using word boundaries for proper matching
+    found_qualifiers = []
+    sentence_lower = sentence.lower()
+    
+    # First try exact matches
+    for phrase in weak_phrases:
+        if re.search(r'\b' + re.escape(phrase) + r'\b', sentence_lower):
+            found_qualifiers.append(phrase)
+            logger.debug(f"Found weak phrase: {phrase}")
+    
+    # Then try variations with additional words in between
+    # For example: "I would suggest" should match "I would strongly suggest"
+    for phrase in weak_phrases:
+        parts = phrase.split()
+        if len(parts) > 1:
+            pattern = r'\b' + r'\b\s+\w+\s+\b'.join(map(re.escape, parts)) + r'\b'
+            if re.search(pattern, sentence_lower) and phrase not in found_qualifiers:
+                found_qualifiers.append(phrase)
+                logger.debug(f"Found weak phrase variation: {phrase}")
+    
+    # Check for adverbs
+    found_adverbs = []
+    for word in words:
+        if word in adverbs_list:
+            found_adverbs.append(word)
+            logger.debug(f"Found adverb: {word}")
+    
+    # Check for passive voice
+    found_passives = []
+    for word in words:
+        if word in passive_voices:
+            found_passives.append(word)
+            logger.debug(f"Found passive voice: {word}")
+    
     stats = {
         "characters": len(sentence),
         "letters": letters,
         "words": len(words),
-        "sentences": 1,
+        "sentences": 1,  # Add this back for test compatibility
         "highlights": {
-            "adverbs": sum(1 for word in words if word in adverbs_list),
+            "adverbs": len(found_adverbs),
             "complex_words": 0,  # Would need implementation
             "grammar_issues": 0,  # Would need implementation
             "hard_sentences": 0,
-            "passive_voices": sum(1 for word in words if word in passive_voices),
-            "qualifiers": sum(1 for phrase in weak_phrases if phrase in sentence.lower()),
+            "passive_voices": len(found_passives),
+            "qualifiers": len(found_qualifiers),
             "very_hard_sentences": 0
         }
     }
     
+    logger.debug(f"Sentence stats: {stats}")
     return stats
 
 def analyze_paragraph(paragraph, settings):
     """Analyze a paragraph by analyzing its sentences."""
+    logger.debug(f"Analyzing paragraph: {paragraph}")
     sentences = split_text(paragraph, "sentence")
+    logger.debug(f"Split into sentences: {sentences}")
+    
     stats = {
         "characters": 0,
         "letters": 0,
         "words": 0,
-        "sentences": len(sentences),
+        "sentences": len(sentences),  # Set sentence count once based on actual splits
         "highlights": {
             "adverbs": 0,
             "complex_words": 0,
@@ -654,22 +702,27 @@ def analyze_paragraph(paragraph, settings):
     
     for sentence in sentences:
         sentence_stats = analyze_sentence(sentence, settings)
+        logger.debug(f"Sentence '{sentence}' stats: {sentence_stats}")
         for key in stats:
             if key == "highlights":
                 for highlight_key in stats["highlights"]:
                     stats["highlights"][highlight_key] += sentence_stats["highlights"][highlight_key]
-            else:
-                stats[key] += sentence_stats[key]
+            elif key != "sentences":  # Don't add sentence counts from individual sentences
+                stats[key] += sentence_stats.get(key, 0)
     
+    logger.debug(f"Final paragraph stats: {stats}")
     return stats
 
 def analyze_text(text, parser_settings):
     """Main function to analyze text."""
+    logger.debug(f"Analyzing text: {text[:100]}...")  # First 100 chars for brevity
     paragraphs = split_text(text, "paragraph")
+    logger.debug(f"Split into {len(paragraphs)} paragraphs")
     all_stats = []
     
-    for paragraph in paragraphs:
+    for i, paragraph in enumerate(paragraphs):
         stats = analyze_paragraph(paragraph, parser_settings)
+        logger.debug(f"Paragraph {i} stats: {stats}")
         all_stats.append(stats)
     
     # Calculate overall stats
@@ -699,6 +752,7 @@ def analyze_text(text, parser_settings):
     )
     overall_stats["reading_time_in_secs"] = overall_stats["words"] / 250 * 60
     
+    logger.debug(f"Final text stats: {overall_stats}")
     return {
         "stats": overall_stats,
         "paragraphs": paragraphs,
