@@ -1,12 +1,7 @@
 #!/opt/homebrew/bin/python3.12
 import re
-import uuid
-
-# Add logging
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+from pydantic import BaseModel, Field
+from typing import Dict, List
 
 # Constants from the original JS file
 adverbs_list = {
@@ -622,9 +617,6 @@ def analyze_sentence(sentence, settings):
     words = re.findall(r'\b\w+\b', sentence.lower())
     letters = sum(len(word) for word in words)
     
-    logger.debug(f"Analyzing sentence: {sentence}")
-    logger.debug(f"Found words: {words}")
-    
     # Check for weak phrases - using word boundaries for proper matching
     found_qualifiers = []
     sentence_lower = sentence.lower()
@@ -633,7 +625,6 @@ def analyze_sentence(sentence, settings):
     for phrase in weak_phrases:
         if re.search(r'\b' + re.escape(phrase) + r'\b', sentence_lower):
             found_qualifiers.append(phrase)
-            logger.debug(f"Found weak phrase: {phrase}")
     
     # Then try variations with additional words in between
     # For example: "I would suggest" should match "I would strongly suggest"
@@ -643,21 +634,18 @@ def analyze_sentence(sentence, settings):
             pattern = r'\b' + r'\b\s+\w+\s+\b'.join(map(re.escape, parts)) + r'\b'
             if re.search(pattern, sentence_lower) and phrase not in found_qualifiers:
                 found_qualifiers.append(phrase)
-                logger.debug(f"Found weak phrase variation: {phrase}")
     
     # Check for adverbs
     found_adverbs = []
     for word in words:
         if word in adverbs_list:
             found_adverbs.append(word)
-            logger.debug(f"Found adverb: {word}")
     
     # Check for passive voice
     found_passives = []
     for word in words:
         if word in passive_voices:
             found_passives.append(word)
-            logger.debug(f"Found passive voice: {word}")
     
     stats = {
         "characters": len(sentence),
@@ -675,14 +663,11 @@ def analyze_sentence(sentence, settings):
         }
     }
     
-    logger.debug(f"Sentence stats: {stats}")
     return stats
 
 def analyze_paragraph(paragraph, settings):
     """Analyze a paragraph by analyzing its sentences."""
-    logger.debug(f"Analyzing paragraph: {paragraph}")
     sentences = split_text(paragraph, "sentence")
-    logger.debug(f"Split into sentences: {sentences}")
     
     stats = {
         "characters": 0,
@@ -702,7 +687,6 @@ def analyze_paragraph(paragraph, settings):
     
     for sentence in sentences:
         sentence_stats = analyze_sentence(sentence, settings)
-        logger.debug(f"Sentence '{sentence}' stats: {sentence_stats}")
         for key in stats:
             if key == "highlights":
                 for highlight_key in stats["highlights"]:
@@ -710,19 +694,64 @@ def analyze_paragraph(paragraph, settings):
             elif key != "sentences":  # Don't add sentence counts from individual sentences
                 stats[key] += sentence_stats.get(key, 0)
     
-    logger.debug(f"Final paragraph stats: {stats}")
     return stats
 
-def analyze_text(text, parser_settings):
-    """Main function to analyze text."""
-    logger.debug(f"Analyzing text: {text[:100]}...")  # First 100 chars for brevity
+class Highlights(BaseModel):
+    adverbs: int = Field(description="Count of adverbs found in the text")
+    complex_words: int = Field(description="Count of complex words")
+    grammar_issues: int = Field(description="Count of grammar issues detected")
+    hard_sentences: int = Field(description="Count of sentences marked as hard to read")
+    passive_voices: int = Field(description="Count of passive voice constructions")
+    qualifiers: int = Field(description="Count of qualifying/weak phrases")
+    very_hard_sentences: int = Field(description="Count of sentences marked as very hard to read")
+
+    model_config = {
+        "populate_by_name": True
+    }
+
+class TextStats(BaseModel):
+    characters: int = Field(description="Total number of characters")
+    letters: int = Field(description="Total number of letters")
+    words: int = Field(description="Total number of words")
+    sentences: int = Field(description="Total number of sentences")
+    paragraphs: int = Field(description="Total number of paragraphs")
+    highlights: Highlights = Field(description="Analysis highlights of writing issues")
+    reading_level: int = Field(description="Calculated reading level score")
+    readability: str = Field(description="Readability assessment (normal, hard, or very_hard)")
+    reading_time_in_secs: float = Field(description="Estimated reading time in seconds")
+
+    model_config = {
+        "populate_by_name": True
+    }
+
+class TextAnalysis(BaseModel):
+    stats: TextStats = Field(description="Overall statistics of the analyzed text")
+    paragraphs: List[str] = Field(description="List of paragraphs in the text")
+    text: str = Field(description="The original input text")
+
+    model_config = {
+        "populate_by_name": True
+    }
+
+    def __getitem__(self, key):
+        return self.model_dump()[key]
+
+def analyze_text(text: str, parser_settings: Dict[str, str]) -> TextAnalysis:
+    """
+    Analyze text for readability and writing style metrics.
+    
+    Args:
+        text: The text to analyze
+        parser_settings: Dictionary of parser settings including reading_level_target
+        
+    Returns:
+        TextAnalysis: Complete analysis of the text including statistics and parsed content
+    """
     paragraphs = split_text(text, "paragraph")
-    logger.debug(f"Split into {len(paragraphs)} paragraphs")
     all_stats = []
     
     for i, paragraph in enumerate(paragraphs):
         stats = analyze_paragraph(paragraph, parser_settings)
-        logger.debug(f"Paragraph {i} stats: {stats}")
         all_stats.append(stats)
     
     # Calculate overall stats
@@ -752,9 +781,26 @@ def analyze_text(text, parser_settings):
     )
     overall_stats["reading_time_in_secs"] = overall_stats["words"] / 250 * 60
     
-    logger.debug(f"Final text stats: {overall_stats}")
-    return {
-        "stats": overall_stats,
-        "paragraphs": paragraphs,
-        "text": text
-    } 
+    return TextAnalysis(
+        stats=TextStats(
+            characters=overall_stats["characters"],
+            letters=overall_stats["letters"],
+            words=overall_stats["words"],
+            sentences=overall_stats["sentences"],
+            paragraphs=overall_stats["paragraphs"],
+            highlights=Highlights(
+                adverbs=overall_stats["highlights"]["adverbs"],
+                complex_words=overall_stats["highlights"]["complex_words"],
+                grammar_issues=overall_stats["highlights"]["grammar_issues"],
+                hard_sentences=overall_stats["highlights"]["hard_sentences"],
+                passive_voices=overall_stats["highlights"]["passive_voices"],
+                qualifiers=overall_stats["highlights"]["qualifiers"],
+                very_hard_sentences=overall_stats["highlights"]["very_hard_sentences"]
+            ),
+            reading_level=overall_stats["reading_level"],
+            readability=overall_stats["readability"],
+            reading_time_in_secs=overall_stats["reading_time_in_secs"]
+        ),
+        paragraphs=paragraphs,
+        text=text
+    ) 

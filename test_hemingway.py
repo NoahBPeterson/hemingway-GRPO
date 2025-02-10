@@ -2,6 +2,7 @@
 
 import pytest
 from hemingway import (
+    TextAnalysis,
     weak_phrases,
     adverbs_list,
     get_delimiter,
@@ -150,10 +151,10 @@ def test_analyze_text():
     """Test full text analysis."""
     result = analyze_text(SAMPLE_TEXT, SAMPLE_SETTINGS)
     
-    assert isinstance(result, dict)
-    assert "stats" in result
-    assert "paragraphs" in result
-    assert "text" in result
+    assert isinstance(result, TextAnalysis)
+    assert hasattr(result, "stats")
+    assert hasattr(result, "paragraphs")
+    assert hasattr(result, "text")
     
     stats = result["stats"]
     assert "reading_level" in stats
