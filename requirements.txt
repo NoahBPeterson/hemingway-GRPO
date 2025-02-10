@@ -1,0 +1,8 @@
+torch
+vllm
+unsloth # xformers: https://github.com/AUTOMATIC1111/stable-diffusion-webui/discussions/8188#discussioncomment-7216546
+transformers
+git+https://github.com/huggingface/trl.git@e95f9fb74a3c3647b86f251b7e230ec51c64b72b
+peft
+diffusers
+pillow
