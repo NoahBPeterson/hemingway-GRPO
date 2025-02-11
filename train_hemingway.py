@@ -739,52 +739,136 @@ def length_reward_func(completions, **kwargs) -> list[float]:
         stats = analysis["stats"]
         paragraphs = analysis["paragraphs"]
         
-        # Start with no reward
+        # Start with base reward
         reward = 0.0
         
-        # Check token length - strongly encourage at least 3,072 tokens
+        # Linear token length reward that scales with length
         if tokenizer:
             token_length = len(tokenizer.encode(text))
-            if token_length < 3072:
-                reward -= 2.0  # Strong penalty for being too short
-            elif token_length >= 3072:
-                reward += 1.0  # Good reward for meeting minimum length
-        
+            # Base reward of 0.5 plus 0.5 per 1000 tokens
+            reward += (token_length / 2000)  # This gives +0.5 per 1000 tokens
+            
         # First paragraph should be short (Hemingway style)
         if paragraphs:
             first_para_analysis = analyze_text(paragraphs[0], {"reading_level_target": "NORMAL"})
             first_para_stats = first_para_analysis["stats"]
             first_para_sentences = first_para_stats["sentences"]
             
-            # Ideal first paragraph: 2-4 sentences
-            if 2 <= first_para_sentences <= 4:
-                reward += 0.5
-            elif first_para_sentences < 2:
-                reward += 0.1  # Too short
+            # Granular first paragraph rewards
+            if first_para_sentences == 1:
+                reward += 0.2  # Too short but better than nothing
+            elif first_para_sentences == 2:
+                reward += 0.6  # Good
+            elif first_para_sentences == 3:
+                reward += 1.0  # Perfect
+            elif first_para_sentences == 4:
+                reward += 0.6  # Good
             else:
-                reward += 0.2  # Too long
+                reward -= 0.5  # Too long
         
-        # Overall paragraph length (3-7 sentences per paragraph)
-        sentences = stats["sentences"]
-        paragraphs_count = max(1, len(paragraphs))
-        avg_sentences_per_para = sentences / paragraphs_count
+        # Paragraph structure rewards
+        if paragraphs:
+            for para in paragraphs[1:]:  # Skip first paragraph
+                para_analysis = analyze_text(para, {"reading_level_target": "NORMAL"})
+                para_sentences = para_analysis["stats"]["sentences"]
+                
+                # Reward ideal paragraph length (3-7 sentences)
+                if para_sentences < 3:
+                    reward -= 0.2  # Too short
+                elif 3 <= para_sentences <= 5:
+                    reward += 0.3  # Perfect
+                elif 6 <= para_sentences <= 7:
+                    reward += 0.1  # Acceptable
+                else:
+                    reward -= 0.3  # Too long
         
-        if 3 <= avg_sentences_per_para <= 7:
-            reward += 0.5
-        elif avg_sentences_per_para < 3:
-            reward += 0.1  # Too short
-        else:
-            reward += 0.2  # Too long
-            
-        # Overall word count (encourage longer pieces while maintaining readability)
+        # Word count rewards (aiming for 800-1200 words)
         words = stats["words"]
-        if words >= 800:  # Target ~800+ words for 3,072+ tokens
-            reward += 0.5
-        elif 500 <= words < 800:
-            reward += 0.2
-        else:
-            reward -= 0.5  # Penalize very short pieces
+        if words < 400:
+            reward -= 1.0
+        elif 400 <= words < 600:
+            reward -= 0.5
+        elif 600 <= words < 800:
+            reward += 0.3
+        elif 800 <= words < 1000:
+            reward += 1.0
+        elif 1000 <= words < 1200:
+            reward += 0.8
+        elif words >= 1200:
+            reward += 0.4  # Still good but slightly lower reward
             
+        rewards.append(max(0.0, reward))
+    
+    return rewards
+
+# %% [markdown]
+# ### Token Length Reward
+def token_length_reward_func(completions, **kwargs) -> list[float]:
+    """Reward longer token counts linearly."""
+    responses = [completion[0]['content'] for completion in completions]
+    tokenizer = kwargs.get('tokenizer')
+    
+    rewards = []
+    for text in responses:
+        if not text or not tokenizer:
+            rewards.append(0.0)
+            continue
+            
+        token_length = len(tokenizer.encode(text))
+        # Linear scaling: 0.5 reward per 1000 tokens
+        reward = token_length / 2000
+        rewards.append(reward)
+    
+    return rewards
+
+# %% [markdown]
+# ### Paragraph Structure Reward
+def paragraph_structure_reward_func(completions, **kwargs) -> list[float]:
+    """Reward appropriate paragraph structure, especially the first paragraph."""
+    responses = [completion[0]['content'] for completion in completions]
+    
+    rewards = []
+    for text in responses:
+        if not text:
+            rewards.append(0.0)
+            continue
+            
+        analysis = analyze_text(text, {"reading_level_target": "NORMAL"})
+        paragraphs = analysis["paragraphs"]
+        reward = 0.0
+        
+        # First paragraph analysis
+        if paragraphs:
+            first_para_analysis = analyze_text(paragraphs[0], {"reading_level_target": "NORMAL"})
+            first_para_sentences = first_para_analysis["stats"]["sentences"]
+            
+            # Reward first paragraph length
+            if first_para_sentences == 1:
+                reward += 0.1  # Too short but better than nothing
+            elif first_para_sentences == 2:
+                reward += 0.3  # Good
+            elif first_para_sentences == 3:
+                reward += 0.5  # Perfect
+            elif first_para_sentences == 4:
+                reward += 0.3  # Good
+            else:
+                reward -= 0.25  # Too long
+        
+        # Other paragraphs analysis
+        if paragraphs:
+            for para in paragraphs[1:]:
+                para_analysis = analyze_text(para, {"reading_level_target": "NORMAL"})
+                para_sentences = para_analysis["stats"]["sentences"]
+                
+                if para_sentences < 3:
+                    reward -= 0.1  # Too short
+                elif 3 <= para_sentences <= 5:
+                    reward += 0.3  # Perfect
+                elif 6 <= para_sentences <= 7:
+                    reward += 0.1  # Acceptable
+                else:
+                    reward -= 0.3  # Too long
+        
         rewards.append(max(0.0, reward))
     
     return rewards
@@ -857,7 +941,8 @@ trainer = GRPOTrainer(
         readability_reward_func,
         conciseness_reward_func,
         active_voice_reward_func,
-        length_reward_func  # Added length rewards
+        token_length_reward_func,  # Added length rewards
+        paragraph_structure_reward_func
     ],
     args = training_args,
     train_dataset = get_writing_samples(),
