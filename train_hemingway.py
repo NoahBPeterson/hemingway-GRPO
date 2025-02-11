@@ -1,3 +1,9 @@
+# %% [markdown]
+# # Hemingway GRPO Training
+# Training a language model to write in Hemingway's style using GRPO
+
+# %% [markdown]
+# ## Setup and Imports
 from unsloth import FastLanguageModel, PatchFastRL, is_bfloat16_supported
 PatchFastRL("GRPO", FastLanguageModel)
 
@@ -9,6 +15,8 @@ from peft import LoraConfig
 from trl import GRPOConfig, GRPOTrainer
 from hemingway import analyze_text
 
+# %% [markdown]
+# ## System Prompt and Writing Prompts
 SYSTEM_PROMPT = """
 You are an expert writer who specializes in Hemingway-style clear, concise communication.
 Write in a direct, active voice. Avoid unnecessary words, qualifiers, and complex phrases.
@@ -599,6 +607,8 @@ WRITING_PROMPTS = [
     "A determined engineer designs a futuristic exoskeleton that amplifies strength to counter a monstrous villain's might. Write the final confrontation that redefines what it means to be human."
 ]
 
+# %% [markdown]
+# ## Dataset Creation
 def get_writing_samples(split="train") -> Dataset:
     """Create a simple dataset from text prompts."""
     
@@ -611,6 +621,11 @@ def get_writing_samples(split="train") -> Dataset:
         ]
     })
 
+# %% [markdown]
+# ## Reward Functions
+
+# %% [markdown]
+# ### Readability Reward
 def readability_reward_func(completions, **kwargs) -> list[float]:
     """Reward clearer, more readable writing."""
     responses = [completion[0]['content'] for completion in completions]
@@ -647,6 +662,8 @@ def readability_reward_func(completions, **kwargs) -> list[float]:
     
     return rewards
 
+# %% [markdown]
+# ### Conciseness Reward
 def conciseness_reward_func(completions, **kwargs) -> list[float]:
     """Reward concise writing without unnecessary words."""
     responses = [completion[0]['content'] for completion in completions]
@@ -676,6 +693,8 @@ def conciseness_reward_func(completions, **kwargs) -> list[float]:
     
     return rewards
 
+# %% [markdown]
+# ### Active Voice Reward
 def active_voice_reward_func(completions, **kwargs) -> list[float]:
     """Reward active voice usage."""
     responses = [completion[0]['content'] for completion in completions]
@@ -703,6 +722,8 @@ def active_voice_reward_func(completions, **kwargs) -> list[float]:
     
     return rewards
 
+# %% [markdown]
+# ### Length Reward
 def length_reward_func(completions, **kwargs) -> list[float]:
     """Reward appropriate length - not too short, not too long."""
     responses = [completion[0]['content'] for completion in completions]
@@ -768,7 +789,8 @@ def length_reward_func(completions, **kwargs) -> list[float]:
     
     return rewards
 
-# Training configuration
+# %% [markdown]
+# ## Training Configuration
 model_name = "Qwen/Qwen2.5-1.5B-Instruct"
 output_dir = "outputs/Qwen-1.5B-GRPO"
 run_name = "Qwen-1.5B-GRPO-hemingway-writer"
@@ -841,5 +863,25 @@ trainer = GRPOTrainer(
     train_dataset = get_writing_samples(),
 )
 
-if __name__ == "__main__":
-    trainer.train() 
+text = tokenizer.apply_chat_template([
+    {"role" : "user", "content" : "A rogue AI weaves a tapestry of magical simulations. Write the hacker's quest to untangle strands of fabricated myth and raw code."},
+], tokenize = False, add_generation_prompt = True)
+
+from vllm import SamplingParams
+sampling_params = SamplingParams(
+    temperature = 0.8,
+    top_p = 0.95,
+    max_tokens = 1024,
+)
+
+output = model.fast_generate(
+    [text],
+    sampling_params = sampling_params,
+    lora_request = None,
+)[0].outputs[0].text
+
+print(output)
+# %% [markdown]
+# ## Training
+#if __name__ == "__main__":
+    #trainer.train() 
