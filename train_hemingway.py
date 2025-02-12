@@ -1,19 +1,17 @@
-# %% [markdown]
-# # Hemingway GRPO Training
-# Training a language model to write in Hemingway's style using GRPO
 
-# %% [markdown]
-# ## Setup and Imports
 from unsloth import FastLanguageModel, PatchFastRL, is_bfloat16_supported
 PatchFastRL("GRPO", FastLanguageModel)
 
 import re
 import torch
-from datasets import load_dataset, Dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from datasets import Dataset
+from transformers import AutoTokenizer
 from peft import LoraConfig
 from trl import GRPOConfig, GRPOTrainer
 from hemingway import analyze_text
+import sys
+
+tokenizer2 = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-3B-Instruct")
 
 # %% [markdown]
 # ## System Prompt and Writing Prompts
@@ -719,17 +717,17 @@ def active_voice_reward_func(completions, **kwargs) -> list[float]:
 def token_length_reward_func(completions, **kwargs) -> list[float]:
     """Reward longer token counts linearly."""
     responses = [completion[0]['content'] for completion in completions]
-    tokenizer = kwargs.get('tokenizer')
+    #tokenizer = kwargs.get('tokenizer')
     
     rewards = []
     for text in responses:
-        if not text or not tokenizer:
+        if not text or not tokenizer2:
             rewards.append(0.0)
             continue
             
-        token_length = len(tokenizer.encode(text))
-        # Linear scaling: 0.5 reward per 1000 tokens
-        reward = token_length / 2000
+        token_length = len(tokenizer2.encode(text))
+        # Linear scaling: 1 reward per 750 tokens
+        reward = token_length / 500
         rewards.append(reward)
     
     return rewards
@@ -806,7 +804,7 @@ training_args = GRPOConfig(
     gradient_accumulation_steps = 1, # Increase to 4 for smoother training
     num_generations = 8, # Decrease if out of memory
     max_prompt_length = 512,
-    max_completion_length = 8192,
+    max_completion_length = 4096,
     # num_train_epochs = 1, # Set to 1 for a full training run
     max_steps = 1000,
     save_steps = 250, # Previously 250
@@ -815,8 +813,8 @@ training_args = GRPOConfig(
     output_dir = "outputs",
 )
 
-max_seq_length = 8192 # Can increase for longer reasoning traces
-lora_rank = 128 # Larger rank = smarter, but slower
+max_seq_length = 4096 # Can increase for longer reasoning traces
+lora_rank = 64 # Larger rank = smarter, but slower
 
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name = "Qwen/Qwen2.5-14B-Instruct",
@@ -841,7 +839,7 @@ model = FastLanguageModel.get_peft_model(
     ], # Remove QKVO if out of memory
     lora_alpha = lora_rank,
     use_gradient_checkpointing = "unsloth", # Enable long context finetuning
-    random_state = 340129317,
+    random_state = 3401239317,
 )
 
 trainer = GRPOTrainer(
