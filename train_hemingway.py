@@ -645,13 +645,15 @@ def readability_reward_func(completions, **kwargs) -> list[float]:
             highlights["passive_voices"] * 0.1 # Passive voice
         )
         
-        # Bonus for appropriate reading level (not too complex)
-        if stats["reading_level"] <= 10:  # Aiming for clear, accessible writing
+        # Small bonus for appropriate reading level
+        if 6 <= stats["reading_level"] <= 10:  # Hemingway-like clarity
             reward += 0.5
-        
-        # Penalize very complex writing
+        elif stats["reading_level"] > 12:      # Too complex
+            reward -= 0.3
+            
+        # Penalize very complex writing more heavily
         if stats["readability"] == "very_hard":
-            reward -= 0.5
+            reward -= 0.4
             
         rewards.append(reward) # max(0.0, reward - penalty))
     
@@ -778,7 +780,7 @@ def paragraph_structure_reward_func(completions, **kwargs) -> list[float]:
                 else:
                     reward -= 0.3  # Too long
         
-        rewards.append(reward) #max(0.0, reward))
+        rewards.append(min(0.5, reward))
     
     return rewards
 
