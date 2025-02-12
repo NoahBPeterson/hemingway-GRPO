@@ -621,11 +621,6 @@ def get_writing_samples(split="train") -> Dataset:
         ]
     })
 
-# %% [markdown]
-# ## Reward Functions
-
-# %% [markdown]
-# ### Readability Reward
 def readability_reward_func(completions, **kwargs) -> list[float]:
     """Reward clearer, more readable writing."""
     responses = [completion[0]['content'] for completion in completions]
@@ -658,12 +653,10 @@ def readability_reward_func(completions, **kwargs) -> list[float]:
         if stats["readability"] == "very_hard":
             reward -= 0.5
             
-        rewards.append(max(0.0, reward - penalty))
+        rewards.append(reward) # max(0.0, reward - penalty))
     
     return rewards
 
-# %% [markdown]
-# ### Conciseness Reward
 def conciseness_reward_func(completions, **kwargs) -> list[float]:
     """Reward concise writing without unnecessary words."""
     responses = [completion[0]['content'] for completion in completions]
@@ -689,12 +682,10 @@ def conciseness_reward_func(completions, **kwargs) -> list[float]:
         elif 25 < words_per_sentence:
             reward -= 0.6
 
-        rewards.append(max(0.0, reward))
+        rewards.append(reward) # max(0.0, reward))
     
     return rewards
 
-# %% [markdown]
-# ### Active Voice Reward
 def active_voice_reward_func(completions, **kwargs) -> list[float]:
     """Reward active voice usage."""
     responses = [completion[0]['content'] for completion in completions]
@@ -718,91 +709,11 @@ def active_voice_reward_func(completions, **kwargs) -> list[float]:
         else:
             reward -= passive_count * 0.1
             
-        rewards.append(max(0.0, reward))
+        rewards.append(reward) #max(0.0, reward))
     
     return rewards
 
-# %% [markdown]
-# ### Length Reward
-def length_reward_func(completions, **kwargs) -> list[float]:
-    """Reward appropriate length - not too short, not too long."""
-    responses = [completion[0]['content'] for completion in completions]
-    tokenizer = kwargs.get('tokenizer')
-    
-    rewards = []
-    for text in responses:
-        if not text:
-            rewards.append(0.0)
-            continue
-            
-        analysis = analyze_text(text, {"reading_level_target": "NORMAL"})
-        stats = analysis["stats"]
-        paragraphs = analysis["paragraphs"]
-        
-        # Start with base reward
-        reward = 0.0
-        
-        # Linear token length reward that scales with length
-        if tokenizer:
-            token_length = len(tokenizer.encode(text))
-            # Base reward of 0.5 plus 0.5 per 1000 tokens
-            reward += (token_length / 2000)  # This gives +0.5 per 1000 tokens
-            
-        # First paragraph should be short (Hemingway style)
-        if paragraphs:
-            first_para_analysis = analyze_text(paragraphs[0], {"reading_level_target": "NORMAL"})
-            first_para_stats = first_para_analysis["stats"]
-            first_para_sentences = first_para_stats["sentences"]
-            
-            # Granular first paragraph rewards
-            if first_para_sentences == 1:
-                reward += 0.2  # Too short but better than nothing
-            elif first_para_sentences == 2:
-                reward += 0.6  # Good
-            elif first_para_sentences == 3:
-                reward += 1.0  # Perfect
-            elif first_para_sentences == 4:
-                reward += 0.6  # Good
-            else:
-                reward -= 0.5  # Too long
-        
-        # Paragraph structure rewards
-        if paragraphs:
-            for para in paragraphs[1:]:  # Skip first paragraph
-                para_analysis = analyze_text(para, {"reading_level_target": "NORMAL"})
-                para_sentences = para_analysis["stats"]["sentences"]
-                
-                # Reward ideal paragraph length (3-7 sentences)
-                if para_sentences < 3:
-                    reward -= 0.2  # Too short
-                elif 3 <= para_sentences <= 5:
-                    reward += 0.3  # Perfect
-                elif 6 <= para_sentences <= 7:
-                    reward += 0.1  # Acceptable
-                else:
-                    reward -= 0.3  # Too long
-        
-        # Word count rewards (aiming for 800-1200 words)
-        words = stats["words"]
-        if words < 400:
-            reward -= 1.0
-        elif 400 <= words < 600:
-            reward -= 0.5
-        elif 600 <= words < 800:
-            reward += 0.3
-        elif 800 <= words < 1000:
-            reward += 1.0
-        elif 1000 <= words < 1200:
-            reward += 0.8
-        elif words >= 1200:
-            reward += 0.4  # Still good but slightly lower reward
-            
-        rewards.append(max(0.0, reward))
-    
-    return rewards
 
-# %% [markdown]
-# ### Token Length Reward
 def token_length_reward_func(completions, **kwargs) -> list[float]:
     """Reward longer token counts linearly."""
     responses = [completion[0]['content'] for completion in completions]
@@ -821,8 +732,6 @@ def token_length_reward_func(completions, **kwargs) -> list[float]:
     
     return rewards
 
-# %% [markdown]
-# ### Paragraph Structure Reward
 def paragraph_structure_reward_func(completions, **kwargs) -> list[float]:
     """Reward appropriate paragraph structure, especially the first paragraph."""
     responses = [completion[0]['content'] for completion in completions]
@@ -869,15 +778,15 @@ def paragraph_structure_reward_func(completions, **kwargs) -> list[float]:
                 else:
                     reward -= 0.3  # Too long
         
-        rewards.append(max(0.0, reward))
+        rewards.append(reward) #max(0.0, reward))
     
     return rewards
 
 # %% [markdown]
 # ## Training Configuration
-model_name = "Qwen/Qwen2.5-1.5B-Instruct"
-output_dir = "outputs/Qwen-1.5B-GRPO"
-run_name = "Qwen-1.5B-GRPO-hemingway-writer"
+model_name = "Qwen/Qwen2.5-14B-Instruct"
+output_dir = "outputs/Qwen-14B-GRPO"
+run_name = "Qwen-14B-GRPO-hemingway-writer"
 
 training_args = GRPOConfig(
     use_vllm = True, # use vLLM for fast inference!
@@ -894,22 +803,21 @@ training_args = GRPOConfig(
     per_device_train_batch_size = 1,
     gradient_accumulation_steps = 1, # Increase to 4 for smoother training
     num_generations = 8, # Decrease if out of memory
-    max_prompt_length = 256,
-    max_completion_length = 4096,
+    max_prompt_length = 512,
+    max_completion_length = 8192,
     # num_train_epochs = 1, # Set to 1 for a full training run
-    max_steps = 250,
-    save_steps = 50, # Previously 250
+    max_steps = 1000,
+    save_steps = 250, # Previously 250
     max_grad_norm = 0.1,
     report_to = "none", # Can use Weights & Biases
     output_dir = "outputs",
-    #use_mps_device=True, # unsloth doesn't support mps :(
 )
 
-max_seq_length = 4096 # Can increase for longer reasoning traces
-lora_rank = 64 # Larger rank = smarter, but slower
+max_seq_length = 8192 # Can increase for longer reasoning traces
+lora_rank = 128 # Larger rank = smarter, but slower
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "Qwen/Qwen2.5-3B-Instruct",
+    model_name = "Qwen/Qwen2.5-14B-Instruct",
     max_seq_length = max_seq_length,
     load_in_4bit = True, # False for LoRA 16bit
     fast_inference = True, # Enable vLLM fast inference
@@ -931,7 +839,7 @@ model = FastLanguageModel.get_peft_model(
     ], # Remove QKVO if out of memory
     lora_alpha = lora_rank,
     use_gradient_checkpointing = "unsloth", # Enable long context finetuning
-    random_state = 3407,
+    random_state = 340129317,
 )
 
 trainer = GRPOTrainer(
@@ -952,11 +860,25 @@ text = tokenizer.apply_chat_template([
     {"role" : "user", "content" : "A rogue AI weaves a tapestry of magical simulations. Write the hacker's quest to untangle strands of fabricated myth and raw code."},
 ], tokenize = False, add_generation_prompt = True)
 
+# %% [markdown]
+# ## Training
+if __name__ == "__main__":
+    trainer.train() 
+    print("Finished training!")
+    model.save_lora("grpo_saved_lora")
+    print("Saved lora!")
+    model.save_pretrained_gguf("model", tokenizer, quantization_method = "not_quantized")
+    print("Saved gguf!!")
+    import sys
+    print("Success, exiting!")
+    sys.exit(0)
+
+
 from vllm import SamplingParams
 sampling_params = SamplingParams(
     temperature = 0.8,
     top_p = 0.95,
-    max_tokens = 1024,
+    max_tokens = 8192,
 )
 
 output = model.fast_generate(
@@ -966,7 +888,3 @@ output = model.fast_generate(
 )[0].outputs[0].text
 
 print(output)
-# %% [markdown]
-# ## Training
-#if __name__ == "__main__":
-    #trainer.train() 
