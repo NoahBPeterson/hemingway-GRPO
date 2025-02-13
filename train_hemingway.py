@@ -789,8 +789,11 @@ model_name = "Qwen/Qwen2.5-14B-Instruct"
 output_dir = "outputs/Qwen-14B-GRPO"
 run_name = "Qwen-14B-GRPO-hemingway-writer"
 
+max_seq_length = 4096   # Can increase for longer reasoning traces
+lora_rank = 64          # Larger rank = smarter, but slower
+
 training_args = GRPOConfig(
-    use_vllm = True, # use vLLM for fast inference!
+    use_vllm = True,                # use vLLM for fast inference!
     learning_rate = 5e-6,
     adam_beta1 = 0.9,
     adam_beta2 = 0.99,
@@ -803,19 +806,18 @@ training_args = GRPOConfig(
     fp16 = not is_bfloat16_supported(),
     per_device_train_batch_size = 1,
     gradient_accumulation_steps = 1, # Increase to 4 for smoother training
-    num_generations = 1, # Decrease if out of memory
+    num_generations = 1,             # Decrease if out of memory
     max_prompt_length = 512,
-    max_completion_length = 4096,
-    # num_train_epochs = 1, # Set to 1 for a full training run
+    max_completion_length = max_seq_length,
+    # num_train_epochs = 1,         # Set to 1 for a full training run
     max_steps = 1000,
     save_steps = 250, # Previously 250
     max_grad_norm = 0.1,
-    report_to = "wandb", # Can use Weights & Biases
+    report_to = "wandb",             # Can use Weights & Biases
     output_dir = "outputs",
+    beta=0.1                         # Default 0.04; this increases maximum allowable KL divergance
 )
 
-max_seq_length = 4096 # Can increase for longer reasoning traces
-lora_rank = 64 # Larger rank = smarter, but slower
 
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name = "Qwen/Qwen2.5-14B-Instruct",
@@ -856,7 +858,7 @@ trainer = MyS1GRPOTrainer(
     args = training_args,
     train_dataset = get_writing_samples(),
     min_tokens_thinking=200,
-    max_tokens_thinking=32000,    # Large token budget
+    max_tokens_thinking=4096,    # Large token budget
     num_ignore=4,                # If you want s1-style, ignore only 2 times
     temperature_override=4.0,     # Creative 
     min_p=0.1
