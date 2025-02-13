@@ -42,7 +42,7 @@ class MyS1GRPOTrainer(GRPOTrainer):
 
         # Only if vLLM is in use:
         if self.use_vllm:
-            self.s1_tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+            self.s1_tokenizer = AutoTokenizer.from_pretrained(model.config._name_or_path, padding_side="left")
             # Example stop tokens. You can customize or remove them:
             stop_token_ids = self.s1_tokenizer("<|im_end|>")["input_ids"]
 
