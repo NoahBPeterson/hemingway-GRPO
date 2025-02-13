@@ -1,4 +1,3 @@
-
 from unsloth import FastLanguageModel, PatchFastRL, is_bfloat16_supported
 PatchFastRL("GRPO", FastLanguageModel)
 
@@ -10,6 +9,7 @@ from peft import LoraConfig
 from trl import GRPOConfig, GRPOTrainer
 from hemingway import analyze_text
 import sys
+from my_grpo_trainer import MyGRPOTrainer
 
 tokenizer2 = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-3B-Instruct")
 
@@ -36,14 +36,14 @@ WRITING_PROMPTS = [
     "A child's imaginary friend appears at their parent's murder trial. Write the courtroom gasp when the friend testifies.",
     "All mirrors now show strangers. Write a makeup artist's confrontation with the face claiming to be her twin.",
     "A jazz musician's saxophone conjures literal storms. Write the club owner's ultimatum: stop playing or drown the city.",
-    "Gravestones display causes of death for the living. Write a jogger reading “Suffocated by Silence” on her own plaque.",
+    "Gravestones display causes of death for the living. Write a jogger reading 'Suffocated by Silence' on her own plaque.",
     "A florist's bouquets erase memories. Write a widow ordering roses to forget, then begging for remembrance.",
     "Firefighters battle blazes that burn secrets instead of wood. Write the captain rescuing diaries from her own home.",
     "A bar serves drinks that temporarily swap lives. Write the ex-con and judge toasting with traded identities.",
     "Children's drawings come to life at midnight. Write parents barricading doors against crayon monsters.",
     "A detective solves crimes by tasting the last meal of victims. Write their revulsion upon recognizing their mother's recipe.",
     "All actors must live their roles between performances. Write Macbeth's lead begging to play a comedy.",
-    "A gardener grows plants that cure specific regrets. Write the moment they find a weed labeled “Should Have Stayed.”",
+    "A gardener grows plants that cure specific regrets. Write the moment they find a weed labeled 'Should Have Stayed.'",
     "A pianist's left hand plays the future, right hand the past. Write their concert where both hands strike the same note.",
     "Migratory birds now carry human memories south. Write a woman tying letters to geese heading toward her amnesic lover.",
     "A seamstress stitches lies into clothing. Write her panic when the mayor's truthful suit unravels during a scandal.",
@@ -53,21 +53,21 @@ WRITING_PROMPTS = [
     "A locksmith opens any door, including metaphorical ones. Write their fee for accessing a politician's buried conscience.",
     "All written words disappear at dawn. Write a poet's race against sunrise to memorize verses for their dying partner.",
     "A therapist treats patients' alternate-reality selves. Write the session where both versions demand opposing cures.",
-    "A baker's bread determines consumers' emotions. Write the protest when they stop making “Contentment” rye.",
+    "A baker's bread determines consumers' emotions. Write the protest when they stop making 'Contentment' rye.",
     "A historian wakes speaking a dead language. Write their conversation with the only other speaker—a hospice patient.",
     "Paintings whisper insults to viewers. Write an art critic's five-star review of a portrait that called them a fraud.",
     "A mail carrier delivers letters to the deceased. Write the day a WWII soldier responds to his 104-year-old bride.",
     "Actors in a crime reenactment show begin committing real murders. Write the director's guilt-ridden ratings surge.",
     "A mechanic fixes cars involved in fatal crashes. Write their discovery of a vehicle that predates automobiles.",
     "A child inherits their imaginary friend's childhood home. Write the realtor's tour revealing claw marks and tiny doors.",
-    "A beekeeper's hive produces honey that reveals truths. Write the town's chaos after the mayor samples “Corruption” batch.",
+    "A beekeeper's hive produces honey that reveals truths. Write the town's chaos after the mayor samples 'Corruption' batch.",
     "All lies manifest as physical scars. Write a lawyer's closing argument with bleeding cheeks.",
     "A diver finds a skeleton holding modern tech in a 1800s shipwreck. Write the museum's cover-up meeting.",
     "A coroner hears cadavers' final thoughts. Write their breakdown when a body whispers today's date.",
     "A prank call connects to the caller's future self. Write the teen's reaction to hearing middle-aged laughter.",
     "A colorblind painter's works predict disasters. Write the gallery opening where buyers bid on impending tragedies.",
     "Library books now open to readers' unwritten memoirs. Write a patron burning their volume in the parking lot.",
-    "A chef's food tastes like consumers' happiest memories. Write their despair when a critic says “It's bland.”",
+    "A chef's food tastes like consumers' happiest memories. Write their despair when a critic says `It's bland.`",
     "A child's nightmare monster begs for asylum from worse terrors. Write the parents' midnight negotiation.",
     "A town celebrates opposite day yearly—crimes included. Write the banker's robbery during legalized lawlessness.",
     "A musician's compositions control weather. Write their final symphony to end a decade-long drought.",
@@ -802,7 +802,7 @@ training_args = GRPOConfig(
     fp16 = not is_bfloat16_supported(),
     per_device_train_batch_size = 1,
     gradient_accumulation_steps = 1, # Increase to 4 for smoother training
-    num_generations = 8, # Decrease if out of memory
+    num_generations = 4, # Decrease if out of memory
     max_prompt_length = 512,
     max_completion_length = 4096,
     # num_train_epochs = 1, # Set to 1 for a full training run
@@ -822,7 +822,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_4bit = True, # False for LoRA 16bit
     fast_inference = True, # Enable vLLM fast inference
     max_lora_rank = lora_rank,
-    gpu_memory_utilization = 0.5, # Reduce if out of memory
+    gpu_memory_utilization = 0.4, # Reduce if out of memory
 )
 
 model = FastLanguageModel.get_peft_model(
@@ -842,18 +842,20 @@ model = FastLanguageModel.get_peft_model(
     random_state = 3401239317,
 )
 
-trainer = GRPOTrainer(
+trainer = MyGRPOTrainer(
     model = model,
     processing_class = tokenizer,
     reward_funcs=[
         readability_reward_func,
         conciseness_reward_func,
         active_voice_reward_func,
-        token_length_reward_func,  # Added length rewards
-        paragraph_structure_reward_func
+        token_length_reward_func,
+        paragraph_structure_reward_func,
     ],
     args = training_args,
     train_dataset = get_writing_samples(),
+    max_tokens_override=32000,  # Force extra-large completions
+    temperature_override=0.99,  # Example tweak, if needed
 )
 
 text = tokenizer.apply_chat_template([
