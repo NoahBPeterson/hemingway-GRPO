@@ -9,7 +9,8 @@ from peft import LoraConfig
 from trl import GRPOConfig, GRPOTrainer
 from hemingway import analyze_text
 import sys
-from my_grpo_trainer import MyGRPOTrainer
+from s1_grpo_trainer import MyS1GRPOTrainer
+import wandb
 
 tokenizer2 = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-3B-Instruct")
 
@@ -802,14 +803,14 @@ training_args = GRPOConfig(
     fp16 = not is_bfloat16_supported(),
     per_device_train_batch_size = 1,
     gradient_accumulation_steps = 1, # Increase to 4 for smoother training
-    num_generations = 4, # Decrease if out of memory
+    num_generations = 1, # Decrease if out of memory
     max_prompt_length = 512,
     max_completion_length = 4096,
     # num_train_epochs = 1, # Set to 1 for a full training run
     max_steps = 1000,
     save_steps = 250, # Previously 250
     max_grad_norm = 0.1,
-    report_to = "none", # Can use Weights & Biases
+    report_to = "wandb", # Can use Weights & Biases
     output_dir = "outputs",
 )
 
@@ -842,7 +843,7 @@ model = FastLanguageModel.get_peft_model(
     random_state = 3401239317,
 )
 
-trainer = MyGRPOTrainer(
+trainer = MyS1GRPOTrainer(
     model = model,
     processing_class = tokenizer,
     reward_funcs=[
@@ -854,8 +855,11 @@ trainer = MyGRPOTrainer(
     ],
     args = training_args,
     train_dataset = get_writing_samples(),
-    max_tokens_override=32000,  # Force extra-large completions
-    temperature_override=0.99,  # Example tweak, if needed
+    min_tokens_thinking=200,
+    max_tokens_thinking=32000,    # Large token budget
+    num_ignore=4,                # If you want s1-style, ignore only 2 times
+    temperature_override=4.0,     # Creative 
+    min_p=0.1
 )
 
 text = tokenizer.apply_chat_template([
