@@ -12,7 +12,8 @@ import sys
 from s1_grpo_trainer import MyS1GRPOTrainer
 import wandb
 
-tokenizer2 = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-3B-Instruct")
+model_name = "Qwen/Qwen2.5-14B-Instruct"
+tokenizer2 = AutoTokenizer.from_pretrained(model_name)
 
 # %% [markdown]
 # ## System Prompt and Writing Prompts
@@ -785,11 +786,10 @@ def paragraph_structure_reward_func(completions, **kwargs) -> list[float]:
 
 # %% [markdown]
 # ## Training Configuration
-model_name = "Qwen/Qwen2.5-14B-Instruct"
-output_dir = "outputs/Qwen-14B-GRPO"
-run_name = "Qwen-14B-GRPO-hemingway-writer"
+output_dir = "outputs/Qwen-3B-GRPO"
+run_name = "Qwen-3B-GRPO-hemingway-writer"
 
-max_seq_length = 4096   # Can increase for longer reasoning traces
+max_seq_length = 1024   # Can increase for longer reasoning traces
 lora_rank = 64          # Larger rank = smarter, but slower
 
 training_args = GRPOConfig(
@@ -820,7 +820,7 @@ training_args = GRPOConfig(
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "Qwen/Qwen2.5-14B-Instruct",
+    model_name = model_name,
     max_seq_length = max_seq_length,
     load_in_4bit = True, # False for LoRA 16bit
     fast_inference = True, # Enable vLLM fast inference
@@ -864,10 +864,6 @@ trainer = MyS1GRPOTrainer(
     min_p=0.1
 )
 
-text = tokenizer.apply_chat_template([
-    {"role" : "user", "content" : "A rogue AI weaves a tapestry of magical simulations. Write the hacker's quest to untangle strands of fabricated myth and raw code."},
-], tokenize = False, add_generation_prompt = True)
-
 # %% [markdown]
 # ## Training
 if __name__ == "__main__":
@@ -888,6 +884,10 @@ sampling_params = SamplingParams(
     top_p = 0.95,
     max_tokens = 8192,
 )
+
+text = tokenizer.apply_chat_template([
+    {"role" : "user", "content" : "A rogue AI weaves a tapestry of magical simulations. Write the hacker's quest to untangle strands of fabricated myth and raw code."},
+], tokenize = False, add_generation_prompt = True)
 
 output = model.fast_generate(
     [text],
