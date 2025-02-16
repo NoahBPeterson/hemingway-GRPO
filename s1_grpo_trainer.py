@@ -19,7 +19,6 @@ class MyS1GRPOTrainer(GRPOTrainer):
         processing_class=None,
         reward_processing_classes=None,
         callbacks=None,
-        optimizers=(None, None),
         peft_config=None,
         min_tokens_thinking=30,
         max_tokens_thinking=32000,   # total tokens you want to allow for 'thinking'
@@ -36,29 +35,66 @@ class MyS1GRPOTrainer(GRPOTrainer):
             processing_class=processing_class,
             reward_processing_classes=reward_processing_classes,
             callbacks=callbacks,
-            optimizers=optimizers,
             peft_config=peft_config,
         )
 
+
+        print("use_vllm???")
         # Only if vLLM is in use:
         if self.use_vllm:
+            print("yes, use vllm")
             self.s1_tokenizer = AutoTokenizer.from_pretrained(model.config._name_or_path, padding_side="left")
             # Example stop tokens. You can customize or remove them:
-            stop_token_ids = self.s1_tokenizer("<|im_end|>")["input_ids"]
+            stop_token_ids = self.s1_tokenizer("<|im_start|><|im_end|><|endoftext|>")["input_ids"]
 
             # Override the parent's sampling_params as you'd like:
             self.sampling_params = SamplingParams(
                 max_tokens=max_tokens_thinking,
-                min_tokens=0,
+                min_tokens=min_tokens_thinking,
                 stop_token_ids=stop_token_ids,
                 skip_special_tokens=False,
                 temperature=temperature_override,
                 min_p=min_p
             )
 
+            # --- Patch the vLLM generate() method ---
+            # Here we wrap the original generate to ensure that for every prompt, 
+            # we never exceed the model's maximum sequence length
+            orig_generate = self.llm.generate
+            def generate_with_truncation(prompts_text, sampling_params, **kwargs):
+                new_outputs = []
+                for prompt in prompts_text:
+                    # Compute token length of the prompt using our dedicated tokenizer.
+                    # Note: We disable padding and special tokens to get an accurate count.
+                    encoding = self.s1_tokenizer(
+                        prompt,
+                        return_tensors="pt",
+                        padding=False,
+                        add_special_tokens=False,
+                    )
+                    prompt_length = encoding["input_ids"].shape[1]
+                    # Calculate how many tokens are left before reaching the model's max sequence length.
+                    # self.args.vllm_max_model_len is the value passed to the LLM at initialization.
+                    allowed_tokens = self.args.max_completion_length - prompt_length
+                    if allowed_tokens < 1:
+                        raise ValueError(
+                            f"Prompt too long ({prompt_length} tokens); maximum allowed is {self.args.vllm_max_model_len}"
+                        )
+                    # Create new sampling parameters, ensuring we do not request more than 'allowed_tokens'.
+                    new_params = SamplingParams(
+                        n=sampling_params.n,
+                        temperature=sampling_params.temperature,
+                        top_p=sampling_params.top_p,
+                        max_tokens=min(sampling_params.max_tokens, allowed_tokens)
+                    )
+                    # Call the original generate() for this prompt.
+                    result = orig_generate([prompt], sampling_params=new_params, **kwargs)
+                    new_outputs.extend(result)
+                return new_outputs
+            self.llm.generate = generate_with_truncation
+
         self.num_ignore = num_ignore
 
-    def generate_in_chunks(self, prompt, ignore_str="Wait"):
         """
         Illustrates partial generation logic like s1 does:
         1) Generate once with big max_tokens.
@@ -68,36 +104,42 @@ class MyS1GRPOTrainer(GRPOTrainer):
             raise RuntimeError("vLLM must be enabled to use partial generation logic!")
 
         # First generation
+        print("First")
         outputs = self.model.generate(prompt, sampling_params=self.sampling_params)
+        print("Second")
         partial_text = outputs[0].outputs[0].text
 
         # "Force" ignoring the stop token a handful of times (the s1 trick)
-        max_tokens_remaining = self.sampling_params.max_tokens - len(outputs[0].outputs[0].token_ids)
+        max_tokens_remaining = (self.sampling_params.max_tokens - len(outputs[0].outputs[0].token_ids)) - 1
         updated_prompt = prompt + partial_text + ignore_str
 
         for _ in range(self.num_ignore):
-            if max_tokens_remaining <= 0:
+            if max_tokens_remaining <= self.sampling.min_tokens:
                 break
             # Adjust sampling_params on the fly (like s1 does)
+            print("Max tokens remaining: ", max_tokens_remaining, self.sampling_params.max_tokens)
             local_params = SamplingParams(
                 max_tokens=max_tokens_remaining,
-                min_tokens=1,
+                min_tokens=self.sampling_params.min_tokens,
                 stop_token_ids=self.sampling_params.stop_token_ids,
                 skip_special_tokens=False,
                 temperature=self.sampling_params.temperature,
             )
             outputs = self.model.generate(updated_prompt, sampling_params=local_params)
             piece = outputs[0].outputs[0].text
-            updated_prompt += piece + ignore_str
             max_tokens_remaining -= len(outputs[0].outputs[0].token_ids)
+            if max_tokens_remaining >= self.sampling_params.min_tokens:
+                updated_prompt += piece + ignore_str
 
         # Optionally do a final generation (like "final answer")
         # So that the model's final response is "closed out" normally:
         local_params_final = SamplingParams(
-            max_tokens=32768, 
+            max_tokens=max_tokens_remaining, 
             stop_token_ids=self.sampling_params.stop_token_ids,
             skip_special_tokens=False,
             temperature=self.sampling_params.temperature,
         )
-        final_output = self.model.generate(updated_prompt, sampling_params=local_params_final)
-        return updated_prompt + final_output[0].outputs[0].text 
+        if max_tokens_remaining > 0:
+            final_output = self.model.generate(updated_prompt, sampling_params=local_params_final)
+            return updated_prompt + final_output[0].outputs[0].text 
+        return updated_prompt
