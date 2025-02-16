@@ -49,6 +49,7 @@ class MyS1GRPOTrainer(GRPOTrainer):
 
             # Override the parent's sampling_params as you'd like:
             self.sampling_params = SamplingParams(
+                n=self.args.num_generations,
                 max_tokens=max_tokens_thinking,
                 min_tokens=min_tokens_thinking,
                 stop_token_ids=stop_token_ids,
@@ -81,12 +82,8 @@ class MyS1GRPOTrainer(GRPOTrainer):
                             f"Prompt too long ({prompt_length} tokens); maximum allowed is {self.args.vllm_max_model_len}"
                         )
                     # Create new sampling parameters, ensuring we do not request more than 'allowed_tokens'.
-                    new_params = SamplingParams(
-                        n=sampling_params.n,
-                        temperature=sampling_params.temperature,
-                        top_p=sampling_params.top_p,
-                        max_tokens=min(sampling_params.max_tokens, allowed_tokens)
-                    )
+                    new_params = self.sampling_params.clone()
+                    new_params.max_tokens = min(self.sampling_params.max_tokens, allowed_tokens)
                     # Call the original generate() for this prompt.
                     result = orig_generate([prompt], sampling_params=new_params, **kwargs)
                     new_outputs.extend(result)
